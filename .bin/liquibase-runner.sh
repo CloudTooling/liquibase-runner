@@ -21,11 +21,25 @@ fi
 # Alle JARs im Liquibase-Home sammeln
 LIQUIBASE_CP=$(find "$LIQUIBASE_HOME" -name "*.jar" | tr '\n' ':')
 
-# Runner starten
+set -o pipefail
+
+# Start wrapper runner
 java -cp "$RUNNER_JAR:$LIQUIBASE_CP" net.ct.LiquibaseRunner "$@" 2>&1 | awk '
 {
     # Escape quotes
     gsub(/"/, "\\\"", $0)
-    level = ($0 ~ /ERROR|Exception/) ? "ERROR" : "INFO"
-    printf("{\"timestamp\":\"%s\",\"level\":\"%s\",\"message\":\"%s\"}\n", strftime("%Y-%m-%dT%H:%M:%S%z"), level, $0)
+
+    # Default level
+    level = "INFO"
+
+    # Match ERROR or Error (case-insensitive)
+    if (tolower($0) ~ /error/) {
+        level = "ERROR"
+    }
+
+    # Build JSON object per line
+    printf("{\"timestamp\":\"%s\",\"level\":\"%s\",\"message\":\"%s\"}\n",
+        strftime("%Y-%m-%dT%H:%M:%S%z"), level, $0)
 }'
+
+exit $?
