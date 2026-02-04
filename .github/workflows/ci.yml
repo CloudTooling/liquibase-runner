@@ -33,7 +33,7 @@ jobs:
         with:
           distribution: "temurin"
           java-version: ${{ matrix.java }}
-        cache: maven
+          cache: maven
 
       - name: Show tool versions
         run: |
