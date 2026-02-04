@@ -43,15 +43,6 @@ jobs:
       - name: Build (includes tests) and create shaded JAR
         run: mvn -B -ntp clean verify
 
-      - name: Upload build artifacts (JARs)
-        uses: actions/upload-artifact@v4
-        with:
-          name: maven-artifacts
-          path: |
-            target/*.jar
-            target/*.pom
-          if-no-files-found: warn
-          retention-days: 7
 
   build-results:
     name: Build results
