@@ -18,7 +18,7 @@ class LiquibaseRunnerTest {
         ByteArrayOutputStream errBuf = new ByteArrayOutputStream();
 
         int code = LiquibaseRunner.run(
-                new String[] { "only-one-arg" },
+                new String[] {},
                 new PrintStream(outBuf),
                 new PrintStream(errBuf)
         );
@@ -35,9 +35,6 @@ class LiquibaseRunnerTest {
         int code = LiquibaseRunner.run(
                 new String[] {
                         "missing-changelog.xml",
-                        "jdbc:h2:mem:test;DB_CLOSE_DELAY=-1",
-                        "sa",
-                        "",
                         tempDir.toString()
                 },
                 new PrintStream(outBuf),

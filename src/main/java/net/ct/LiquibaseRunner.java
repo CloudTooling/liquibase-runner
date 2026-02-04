@@ -33,17 +33,14 @@ public class LiquibaseRunner {
 
         // -------------------------------
         // 2) CLI arguments
-        if (args.length < 4) {
-            err.println("Usage: java -jar liquibase-json-demo.jar <changelog-file> <db-url> <db-user> <db-password> [searchPath] [liquibase.properties]");
+        if (args.length < 1) {
+            err.println("Usage: java -jar liquibase-json-demo.jar <changelog-file> [searchPath] [liquibase.properties]");
             return 1;
         }
 
         String changeLogFile = args[0];
-        String dbUrl = args[1];
-        String dbUser = args[2];
-        String dbPass = args[3];
-        String searchPath = args.length >= 5 ? args[4] : null;
-        String propertiesFile = args.length >= 6 ? args[5] : null;
+        String searchPath = args.length >= 2 ? args[1] : null;
+        String propertiesFile = args.length >= 3 ? args[2] : null;
 
         // Remove trailing slash
         if (searchPath != null && searchPath.endsWith("/")) {
@@ -62,9 +59,9 @@ public class LiquibaseRunner {
         }
 
         // CLI args override properties
-        dbUrl = (dbUrl != null && !dbUrl.isEmpty()) ? dbUrl : props.getProperty("url");
-        dbUser = (dbUser != null && !dbUser.isEmpty()) ? dbUser : props.getProperty("username");
-        dbPass = (dbPass != null && !dbPass.isEmpty()) ? dbPass : props.getProperty("password");
+        String dbUrl = props.getProperty("url");
+        String dbUser = props.getProperty("username");
+        String  dbPass = props.getProperty("password");
 
         // -------------------------------
         // 4) Does the changelog file exist? (check before DB connection to keep this testable)
