@@ -14,7 +14,7 @@
         <liquibase.version>4.31.1</liquibase.version>
         <logback.version>1.4.14</logback.version>
         <logstash.encoder.version>7.4</logstash.encoder.version>
-        <h2.version>2.2.224</h2.version>
+        <h2.version>2.4.240</h2.version>
         <junit.version>5.14.2</junit.version>
     </properties>
 
