@@ -26,21 +26,28 @@ public class LiquibaseRunner {
     }
 
     static int run(String[] args, PrintStream out, PrintStream err) throws Exception {
+        int startArgs = 0;
         // -------------------------------
         // 1) JUL -> SLF4J bridge for JSON logging
         java.util.logging.LogManager.getLogManager().reset();
         SLF4JBridgeHandler.install();
+        if (args.length >= 1 && args[0].contains(".jar")) {
+            startArgs = 1;
+        }
 
         // -------------------------------
         // 2) CLI arguments
-        if (args.length < 1) {
+        if (args.length < startArgs + 1) {
             err.println("Usage: java -jar liquibase-json-demo.jar <changelog-file> [searchPath] [liquibase.properties]");
             return 1;
         }
 
-        String changeLogFile = args[0];
-        String searchPath = args.length >= 2 ? args[1] : null;
-        String propertiesFile = args.length >= 3 ? args[2] : null;
+        String changeLogFile = args[startArgs];
+        out.println("Using changelog: " + changeLogFile);
+        String searchPath = args.length >= startArgs + 2 ? args[startArgs + 1] : null;
+        out.println("Using searchPath: " + searchPath);
+        String propertiesFile = args.length >= startArgs + 3 ? args[startArgs + 2] : null;
+        out.println("Using propertiesFile: " + propertiesFile);
 
         // Remove trailing slash
         if (searchPath != null && searchPath.endsWith("/")) {
@@ -61,7 +68,7 @@ public class LiquibaseRunner {
         // CLI args override properties
         String dbUrl = props.getProperty("url");
         String dbUser = props.getProperty("username");
-        String  dbPass = props.getProperty("password");
+        String dbPass = props.getProperty("password");
 
         // -------------------------------
         // 4) Does the changelog file exist? (check before DB connection to keep this testable)
