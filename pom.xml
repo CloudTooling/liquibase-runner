@@ -98,6 +98,7 @@
                                     <!-- Only package Logback / SLF4J -->
                                     <include>ch.qos.logback:logback-classic</include>
                                     <include>ch.qos.logback:logback-core</include>
+                                    <include>net.logstash.logback:logstash-logback-encoder</include>
                                     <include>org.slf4j:slf4j-api</include>
                                     <include>org.slf4j:jul-to-slf4j</include>
                                 </includes>
