@@ -26,20 +26,24 @@ set -o pipefail
 # Start wrapper runner
 java -cp "$RUNNER_JAR:$LIQUIBASE_CP" net.ct.LiquibaseRunner "$@" 2>&1 | awk '
 {
-    # Escape quotes
-    gsub(/"/, "\\\"", $0)
+    line = $0
 
-    # Default level
+    # If line looks like JSON, pass through untouched
+    if (line ~ /^[[:space:]]*\{.*\}[[:space:]]*$/) {
+        print line
+        next
+    }
+
+    # Escape quotes for non-JSON lines
+    gsub(/"/, "\\\"", line)
+
     level = "INFO"
-
-    # Match ERROR or Error (case-insensitive)
-    if (tolower($0) ~ /error/) {
+    if (tolower(line) ~ /error/) {
         level = "ERROR"
     }
 
-    # Build JSON object per line
     printf("{\"timestamp\":\"%s\",\"level\":\"%s\",\"message\":\"%s\"}\n",
-        strftime("%Y-%m-%dT%H:%M:%S%z"), level, $0)
+        strftime("%Y-%m-%dT%H:%M:%S%z"), level, line)
 }'
 
 exit $?
