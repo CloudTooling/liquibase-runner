@@ -18,6 +18,13 @@
         <junit.version>5.14.2</junit.version>
     </properties>
 
+    <scm>
+        <url>https://${GITHUB_TOKEN}@github.com/CloudTooling/liquibase-runner.git</url>
+        <connection>scm:git:${project.scm.url}</connection>
+        <developerConnection>scm:git:${project.scm.url}</developerConnection>
+        <tag>HEAD</tag>
+    </scm>
+
     <dependencies>
         <!-- Liquibase Core -->
         <dependency>
