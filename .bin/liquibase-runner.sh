@@ -42,7 +42,7 @@ java -cp "$RUNNER_JAR:$LIQUIBASE_CP" net.ct.LiquibaseRunner "$@" 2>&1 | awk '
         level = "ERROR"
     }
 
-    printf("{\"timestamp\":\"%s\",\"level\":\"%s\",\"message\":\"%s\"}\n",
+    printf("{\"@timestamp\":\"%s\",\"level\":\"%s\",\"message\":\"%s\"}\n",
         strftime("%Y-%m-%dT%H:%M:%S%z"), level, line)
 }'
 
