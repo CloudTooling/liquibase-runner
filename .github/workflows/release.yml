@@ -84,7 +84,7 @@ jobs:
                 run: |
                     export TZ="Europe/Berlin"
                     #./mvnw release:prepare release:perform -B -Pcentral-publish -DreleaseVersion=${{ inputs.releaseversion }} -Dgpg.keyname=${{ env.OSS_SONATYPE_GPG_KEYID }} -Dgpg.passphrase=${{ secrets.OSS_SONATYPE_GPG_PASSPHRASE }} -DskipITs=true -Darguments="-DskipTests=true -DskipITs=true -Dgpg.passphrase=${{ secrets.OSS_SONATYPE_GPG_PASSPHRASE }}"
-                    ./mvnw release:prepare release:perform -B -DreleaseVersion=${{ inputs.releaseversion }} -DskipITs=true -Darguments="-DskipTests=true -DskipITs=true -Dgpg.passphrase=${{ secrets.OSS_SONATYPE_GPG_PASSPHRASE }}"
+                    ./mvnw release:prepare release:perform -B -DreleaseVersion=${{ inputs.releaseversion }} -DskipITs=true -Darguments="-Dmaven.deploy.skip=true -DskipTests=true -DskipITs=true -Dgpg.passphrase=${{ secrets.OSS_SONATYPE_GPG_PASSPHRASE }}"
                     # write version info
                     cat <<EOF >target/config.json
                     {
