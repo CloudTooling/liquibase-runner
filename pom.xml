@@ -85,7 +85,6 @@
     </dependencies>
 
     <build>
-        <finalName>liquibase-runner</finalName>
         <plugins>
             <!-- Shade plugin nur für SLF4J / Logback -->
             <plugin>
@@ -116,6 +115,7 @@
                             </artifactSet>
                             <shadedArtifactAttached>true</shadedArtifactAttached>
                             <shadedClassifierName>with-logging</shadedClassifierName>
+                            <finalName>liquibase-runner</finalName>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                         </configuration>
                     </execution>
