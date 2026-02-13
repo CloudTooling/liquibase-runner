@@ -3,18 +3,29 @@
 
 RUNNER_JAR="$1"
 
+json_log() {
+  log_level="$1"
+  message="$2"
+  echo '{}' | jq \
+    --arg timestamp "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+    --arg log_level "$log_level" \
+    --arg message "$message" \
+    '.["@timestamp"]=$timestamp|.log.level=$log_level|.message=$message' \
+    | jq -c
+}
+
 # Prüfen, ob LIQUIBASE_HOME gesetzt ist
 if [ -z "$LIQUIBASE_HOME" ]; then
     # JSON-Fehler ausgeben und Skript beenden
     TIMESTAMP=$(date +"%Y-%m-%dT%H:%M:%S%z")
-    echo "{\"timestamp\":\"$TIMESTAMP\",\"level\":\"ERROR\",\"message\":\"LIQUIBASE_HOME is not set. Please set it to your Liquibase installation.\"}"
+    json_log "ERROR" "LIQUIBASE_HOME is not set. Please set it to your Liquibase installation."
     exit 1
 fi
 
 # Prüfen, ob das Verzeichnis existiert
 if [ ! -d "$LIQUIBASE_HOME" ]; then
     TIMESTAMP=$(date +"%Y-%m-%dT%H:%M:%S%z")
-    echo "{\"timestamp\":\"$TIMESTAMP\",\"level\":\"ERROR\",\"message\":\"LIQUIBASE_HOME directory '$LIQUIBASE_HOME' does not exist.\"}"
+    json_log "ERROR" "LIQUIBASE_HOME directory \$LIQUIBASE_HOME does not exist"
     exit 1
 fi
 
