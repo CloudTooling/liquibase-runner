@@ -84,7 +84,7 @@ public class LiquibaseRunner {
 
             if (url == null || changeLogFile == null) {
                 err.println("Properties 'url' and 'changeLogFile' are required");
-                System.exit(3);
+                return 3;
             }
 
             // 4️⃣ Open JDBC connection
@@ -118,13 +118,13 @@ public class LiquibaseRunner {
 
         } catch (IOException e) {
             err.println("Failed to read defaultsFile: " + e.getMessage());
-            System.exit(4);
+            return 2;
         } catch (LiquibaseException e) {
             err.println("Liquibase error" + e.getMessage());
-            System.exit(5);
+            return 4;
         } catch (Exception e) {
             err.println("Unknown error" + e.getMessage());
-            System.exit(6);
+            return 5;
         }
         return 0;
     }
