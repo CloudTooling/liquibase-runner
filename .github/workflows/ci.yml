@@ -43,6 +43,13 @@ jobs:
       - name: Build (includes tests) and create shaded JAR
         run: mvn -B -ntp clean verify
 
+      - name: Publish Test Report
+        uses: mikepenz/action-junit-report@v6
+        # always run even if the previous step fails
+        if: always()
+        with:
+          report_paths: 'target/*/TEST-*.xml'
+
 
   build-results:
     name: Build results
