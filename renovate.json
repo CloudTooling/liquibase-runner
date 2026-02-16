@@ -1,11 +1,4 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>CloudTooling/renovate-config"],
-  "packageRules": [
-    {
-      "matchManagers": ["maven"],
-      "matchPackageNames": ["net.logstash.logback:logstash-logback-encoder"],
-      "allowedVersions": "<9.0.0"
-    }
-  ]
+  "extends": ["github>CloudTooling/renovate-config"]
 }
