@@ -45,6 +45,6 @@ class LiquibaseRunnerTest {
         );
 
         assertEquals(2, code);
-        assertTrue(errBuf.toString().contains("Failed to read defaultsFile: . (Is a directory)"), "Expected missing error for defaultsFile");
+        assertTrue(errBuf.toString().contains("Read defaultsFile error: . (Is a directory)"), "Expected missing error for defaultsFile");
     }
 }

@@ -117,16 +117,22 @@ public class LiquibaseRunner {
             }
 
         } catch (IOException e) {
-            err.println("Failed to read defaultsFile: " + e.getMessage());
-            return 2;
+            return logException(err, "Read defaultsFile", e, 2);
         } catch (LiquibaseException e) {
-            err.println("Liquibase error" + e.getMessage());
-            return 4;
+            return logException(err, "Liquibase", e, 4);
         } catch (Exception e) {
-            err.println("Unknown error" + e.getMessage());
-            return 5;
+            return logException(err, "Unknown", e, 5);
         }
         return 0;
+    }
+
+    private static int logException(PrintStream err, final String label, final Exception exception, int exitCode) {
+        if (exception.getCause() != null) {
+            err.println(label + " error: " + exception.getCause() + " (" + exception.getMessage() + ")");
+        } else {
+            err.println(label + " error: " + exception.getMessage());
+        }
+        return exitCode;
     }
 
     /**
