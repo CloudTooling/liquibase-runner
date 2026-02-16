@@ -9,7 +9,7 @@
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
         <liquibase.version>4.33.0</liquibase.version>
-        <logback.version>1.5.31</logback.version>
+        <logback.version>1.5.32</logback.version>
         <ecs-encoder.version>1.7.0</ecs-encoder.version>
         <h2.version>2.4.240</h2.version>
         <junit.version>5.14.3</junit.version>
