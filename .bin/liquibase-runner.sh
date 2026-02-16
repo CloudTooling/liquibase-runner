@@ -1,60 +1,60 @@
 #!/usr/bin/env bash
-# Usage: ./run-liquibase-json.sh <jar-file> [args...]
+set -e
 
-RUNNER_JAR="$1"
-
+# ECS JSON logger
 json_log() {
-  log_level="$1"
-  message="$2"
-  echo '{}' | jq \
-    --arg timestamp "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
-    --arg log_level "$log_level" \
-    --arg message "$message" \
-    '.["@timestamp"]=$timestamp|.log.level=$log_level|.message=$message' \
-    | jq -c
+  local log_level="$1"
+  local message="$2"
+
+  jq -cn \
+    --arg timestamp "$(date +'%Y-%m-%dT%H:%M:%S%z')" \
+    --arg level "$log_level" \
+    --arg msg "$message" \
+    --arg ecs_version "1.12.0" \
+    --arg service_name "${SERVICE_NAME:-liquibase-runner}" \
+    '{
+      "@timestamp": $timestamp,
+      "log.level": $level,
+      "message": $msg,
+      "ecs.version": $ecs_version,
+      "service.name": $service_name
+    }'
 }
 
-# Prüfen, ob LIQUIBASE_HOME gesetzt ist
+# Check that JAR file is passed
+if [ -z "$1" ]; then
+    json_log "ERROR" "Usage: $0 <runner-jar> [args...]"
+    exit 1
+fi
+
+RUNNER_JAR="$1"
+shift  # remove first argument
+
+# Ensure LIQUIBASE_HOME is set
 if [ -z "$LIQUIBASE_HOME" ]; then
-    # JSON-Fehler ausgeben und Skript beenden
-    TIMESTAMP=$(date +"%Y-%m-%dT%H:%M:%S%z")
-    json_log "ERROR" "LIQUIBASE_HOME is not set. Please set it to your Liquibase installation."
+    json_log "ERROR" "LIQUIBASE_HOME not set"
     exit 1
 fi
 
-# Prüfen, ob das Verzeichnis existiert
-if [ ! -d "$LIQUIBASE_HOME" ]; then
-    TIMESTAMP=$(date +"%Y-%m-%dT%H:%M:%S%z")
-    json_log "ERROR" "LIQUIBASE_HOME directory \$LIQUIBASE_HOME does not exist"
-    exit 1
-fi
+# Build classpath: your runner + liquibase jars
+LIQUIBASE_CP="$LIQUIBASE_HOME/lib/*"
 
-# Alle JARs im Liquibase-Home sammeln
-LIQUIBASE_CP=$(find "$LIQUIBASE_HOME" -name "*.jar" | tr '\n' ':')
+# Run the Java runner and pipe through ECS logger
+"$JAVA_HOME/bin/java" -cp "$RUNNER_JAR:$LIQUIBASE_CP" net.ct.LiquibaseRunner "$@" \
+  2>&1 | while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
 
-set -o pipefail
+      # Already JSON? Pass through
+      if [[ "$line" =~ ^[[:space:]]*\{.*\}[[:space:]]*$ ]]; then
+          echo "$line"
+      else
+          level="INFO"
+          if [[ "${line,,}" =~ error ]]; then
+              level="ERROR"
+          fi
+          json_log "$level" "$line"
+      fi
+  done
 
-# Start wrapper runner
-java -cp "$RUNNER_JAR:$LIQUIBASE_CP" net.ct.LiquibaseRunner "$@" 2>&1 | awk '
-{
-    line = $0
-
-    # If line looks like JSON, pass through untouched
-    if (line ~ /^[[:space:]]*\{.*\}[[:space:]]*$/) {
-        print line
-        next
-    }
-
-    # Escape quotes for non-JSON lines
-    gsub(/"/, "\\\"", line)
-
-    level = "INFO"
-    if (tolower(line) ~ /error/) {
-        level = "ERROR"
-    }
-
-    printf("{\"@timestamp\":\"%s\",\"level\":\"%s\",\"message\":\"%s\"}\n",
-        strftime("%Y-%m-%dT%H:%M:%S%z"), level, line)
-}'
-
-exit $?
+# Forward the Java exit code
+exit ${PIPESTATUS[0]}

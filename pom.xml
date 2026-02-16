@@ -10,7 +10,7 @@
         <maven.compiler.target>11</maven.compiler.target>
         <liquibase.version>4.33.0</liquibase.version>
         <logback.version>1.5.31</logback.version>
-        <logstash.encoder.version>9.0</logstash.encoder.version>
+        <ecs-encoder.version>1.7.0</ecs-encoder.version>
         <h2.version>2.4.240</h2.version>
         <junit.version>5.14.3</junit.version>
     </properties>
@@ -68,11 +68,10 @@
 
         <!-- JSON Encoder -->
         <dependency>
-            <groupId>net.logstash.logback</groupId>
-            <artifactId>logstash-logback-encoder</artifactId>
-            <version>${logstash.encoder.version}</version>
+            <groupId>co.elastic.logging</groupId>
+            <artifactId>logback-ecs-encoder</artifactId>
+            <version>${ecs-encoder.version}</version>
         </dependency>
-
         <!-- ... existing code ... -->
 
         <!-- Tests (JUnit 5) -->
@@ -80,6 +79,13 @@
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.20.0</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -115,7 +121,7 @@
                                     <!-- Only package Logback / SLF4J -->
                                     <include>ch.qos.logback:logback-classic</include>
                                     <include>ch.qos.logback:logback-core</include>
-                                    <include>net.logstash.logback:logstash-logback-encoder</include>
+                                    <include>co.elastic.logging:logback-ecs-encoder</include>
                                     <include>org.slf4j:slf4j-api</include>
                                     <include>org.slf4j:jul-to-slf4j</include>
                                 </includes>
