@@ -1,69 +1,122 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-# ------------------------------------------
-# ECS JSON logger function
-# ------------------------------------------
+# =============================================================================
+# liquibase-runner.sh
+# Wraps LiquibaseRunner with ECS JSON logging and correct exit code propagation
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# ECS JSON logger
+# -----------------------------------------------------------------------------
 json_log() {
-  local log_level="$1"
-  # clean message
-  local message=$(echo "$2" | sed -E 's/^[0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]{3} \|-[A-Z]+ in [^ ]+ - //')
-  jq -cn \
-    --arg timestamp "$(date +'%Y-%m-%dT%H:%M:%S%z')" \
-    --arg level "$log_level" \
-    --arg msg "$message" \
-    --arg ecs_version "1.12.0" \
-    --arg service_name "${SERVICE_NAME:-liquibase}" \
-    '{
-      "@timestamp": $timestamp,
-      "log": {"level": $level},
-      "message": $msg,
-      "ecs.version": $ecs_version,
-      "service.name": $service_name
-    }'
+    local level="$1"
+    local message="$2"
+
+    # Strip common Liquibase log prefixes like "15:18:57,123 |-INFO in ... - "
+    message=$(echo "$message" | sed -E 's/^[0-9]{2}:[0-9]{2}:[0-9]{2},[0-9]{3} \|-[A-Z]+ in [^ ]+ - //')
+
+    jq -cn \
+        --arg timestamp "$(date +'%Y-%m-%dT%H:%M:%S%z')" \
+        --arg level    "$level" \
+        --arg msg      "$message" \
+        --arg ecs      "1.12.0" \
+        --arg svc      "${SERVICE_NAME:-liquibase}" \
+        '{
+            "@timestamp":   $timestamp,
+            "log":          { "level": $level },
+            "message":      $msg,
+            "ecs.version":  $ecs,
+            "service.name": $svc
+        }'
 }
 
-# ------------------------------------------
-# Check input
-# ------------------------------------------
-if [ -z "$1" ]; then
+# -----------------------------------------------------------------------------
+# Detect log level from a plain-text line
+# -----------------------------------------------------------------------------
+detect_level() {
+    local line
+    line="$(echo "$1" | tr "[:upper:]" "[:lower:]")"
+    if [[ "$line" =~ error|exception|fatal ]]; then
+        echo "ERROR"
+    elif [[ "$line" =~ warn(ing)? ]]; then
+        echo "WARN"
+    elif [[ "$line" =~ debug|trace ]]; then
+        echo "DEBUG"
+    else
+        echo "INFO"
+    fi
+}
+
+# -----------------------------------------------------------------------------
+# Route a single output line to ECS JSON
+# -----------------------------------------------------------------------------
+emit_line() {
+    local line="$1"
+    [[ -z "$line" ]] && return
+
+    # Already ECS/JSON — pass straight through
+    if [[ "$line" =~ ^[[:space:]]*\{.*\}[[:space:]]*$ ]]; then
+        echo "$line"
+        return
+    fi
+
+    json_log "$(detect_level "$line")" "$line"
+}
+
+# -----------------------------------------------------------------------------
+# Validate inputs
+# -----------------------------------------------------------------------------
+if [[ -z "${1:-}" ]]; then
     json_log "ERROR" "Usage: $0 <runner-jar> [args...]"
     exit 1
 fi
 
 RUNNER_JAR="$1"
-shift  # remove first argument, pass remaining args to LiquibaseRunner
+shift   # remaining args go to LiquibaseRunner
 
-# ------------------------------------------
-# Ensure LIQUIBASE_HOME is set
-# ------------------------------------------
-if [ -z "$LIQUIBASE_HOME" ]; then
-    json_log "ERROR" "LIQUIBASE_HOME not set"
+if [[ ! -f "$RUNNER_JAR" ]]; then
+    json_log "ERROR" "Runner JAR not found: $RUNNER_JAR"
     exit 1
 fi
 
-# Build classpath: your runner + liquibase jars
-LIQUIBASE_CP=$(find "$LIQUIBASE_HOME" -name "*.jar" | tr '\n' ':')
+if [[ -z "${LIQUIBASE_HOME:-}" ]]; then
+    json_log "ERROR" "LIQUIBASE_HOME is not set"
+    exit 1
+fi
 
-# Run the Java runner and pipe through ECS logger
-java -cp "$RUNNER_JAR:$LIQUIBASE_CP" net.ct.LiquibaseRunner "$@" \
-  2>&1 | while IFS= read -r line; do
-      [[ -z "$line" ]] && continue
+if [[ ! -d "$LIQUIBASE_HOME" ]]; then
+    json_log "ERROR" "LIQUIBASE_HOME does not exist: $LIQUIBASE_HOME"
+    exit 1
+fi
 
-      # Already JSON? Pass through
-      if [[ "$line" =~ ^[[:space:]]*\{.*\}[[:space:]]*$ ]]; then
-          echo "$line"
-      else
-          # Detect error heuristically
-          level="INFO"
-          if [[ "${line,,}" =~ error ]]; then
-              level="ERROR"
-          fi
-          json_log "$level" "$line"
-      fi
-  done
+# -----------------------------------------------------------------------------
+# Build classpath: runner JAR + every *.jar found anywhere under LIQUIBASE_HOME
+# -----------------------------------------------------------------------------
+LIQUIBASE_CP="$RUNNER_JAR"
 
-# ------------------------------------------
-# Forward LiquibaseRunner exit code
-# ------------------------------------------
-exit ${PIPESTATUS[0]}
+while IFS= read -r jar; do
+    LIQUIBASE_CP="$LIQUIBASE_CP:$jar"
+done < <(find "$LIQUIBASE_HOME" -name "*.jar" 2>/dev/null)
+
+json_log "INFO" "Using classpath entries: $(echo "$LIQUIBASE_CP" | tr ':' '\n' | awk 'END{print NR}') JARs"
+
+# -----------------------------------------------------------------------------
+# Execute LiquibaseRunner, stream output through ECS formatter
+# -----------------------------------------------------------------------------
+# Temporarily disable set -e so a non-zero java exit does not abort the script
+# before we can read PIPESTATUS. Re-enable immediately after.
+set +e
+java -cp "$LIQUIBASE_CP" -Djdbc.drivers=oracle.jdbc.OracleDriver net.ct.LiquibaseRunner "$@" 2>&1 \
+    | while IFS= read -r line; do
+          emit_line "$line"
+      done
+# Capture PIPESTATUS[0] (java exit code) before anything else can overwrite it.
+JAVA_EXIT="${PIPESTATUS[0]}"
+set -e
+
+if [[ "$JAVA_EXIT" -ne 0 ]]; then
+    json_log "ERROR" "LiquibaseRunner exited with code $JAVA_EXIT"
+fi
+
+exit "$JAVA_EXIT"
