@@ -46,7 +46,7 @@ fi
 LIQUIBASE_CP=$(find "$LIQUIBASE_HOME" -name "*.jar" | tr '\n' ':')
 
 # Run the Java runner and pipe through ECS logger
-java -cp "$LIQUIBASE_CP:$RUNNER_JAR" net.ct.LiquibaseRunner "$@" \
+java -cp "$RUNNER_JAR:$LIQUIBASE_CP" net.ct.LiquibaseRunner "$@" \
   2>&1 | while IFS= read -r line; do
       [[ -z "$line" ]] && continue
 
