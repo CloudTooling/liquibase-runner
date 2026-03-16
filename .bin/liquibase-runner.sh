@@ -32,6 +32,21 @@ json_log() {
 }
 
 # -----------------------------------------------------------------------------
+# Map a Liquibase level token (English or German locale) to an ECS level string
+# -----------------------------------------------------------------------------
+map_liq_level() {
+    local lvl
+    lvl="$(echo "$1" | tr "[:upper:]" "[:lower:]")"
+    case "$lvl" in
+        error|fehler)         echo "ERROR" ;;
+        warn|warning|warnung) echo "WARN"  ;;
+        debug)                echo "DEBUG" ;;
+        trace)                echo "TRACE" ;;
+        *)                    echo "INFO"  ;;
+    esac
+}
+
+# -----------------------------------------------------------------------------
 # Detect log level from a plain-text line
 # -----------------------------------------------------------------------------
 detect_level() {
@@ -39,7 +54,7 @@ detect_level() {
     line="$(echo "$1" | tr "[:upper:]" "[:lower:]")"
     if [[ "$line" =~ error|exception|fatal ]]; then
         echo "ERROR"
-    elif [[ "$line" =~ warn(ing)? ]]; then
+    elif [[ "$line" =~ warn(ing)?|warnung ]]; then
         echo "WARN"
     elif [[ "$line" =~ debug|trace ]]; then
         echo "DEBUG"
@@ -58,6 +73,20 @@ emit_line() {
     # Already ECS/JSON — pass straight through
     if [[ "$line" =~ ^[[:space:]]*\{.*\}[[:space:]]*$ ]]; then
         echo "$line"
+        return
+    fi
+
+    # Liquibase prefixed format: [YYYY-MM-DD HH:MM:SS] LEVEL [logger] message
+    # Lines tagged [liquibase.ui] are bare-text duplicates of UIService output — skip them.
+    # Lines from other loggers carry unique info: extract the embedded level and strip the prefix.
+    if [[ "$line" =~ ^\[([0-9]{4}-[0-9]{2}-[0-9]{2}[[:space:]][0-9]{2}:[0-9]{2}:[0-9]{2})\][[:space:]]([A-Z]+)[[:space:]]\[([^]]+)\][[:space:]](.*)$ ]]; then
+        local liq_level="${BASH_REMATCH[2]}"
+        local liq_logger="${BASH_REMATCH[3]}"
+        local liq_msg="${BASH_REMATCH[4]}"
+        if [[ "$liq_logger" == "liquibase.ui" ]]; then
+            return  # UIService also emits the bare message — suppress the prefixed duplicate
+        fi
+        json_log "$(map_liq_level "$liq_level")" "$liq_msg"
         return
     fi
 
