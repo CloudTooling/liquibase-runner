@@ -37,7 +37,7 @@ fake_json_line() {
 source_functions() {
     # We source up to but not including the input-validation block
     # by extracting and eval-ing just the function definitions.
-    eval "$(sed -n '/^json_log()/,/^}/p; /^detect_level()/,/^}/p; /^emit_line()/,/^}/p' "$SCRIPT")"
+    eval "$(sed -n '/^json_log()/,/^}/p; /^map_liq_level()/,/^}/p; /^detect_level()/,/^}/p; /^emit_line()/,/^}/p' "$SCRIPT")"
 }
 
 # =============================================================================
@@ -304,4 +304,188 @@ EOF
         [[ -z "$line" ]] && continue
         echo "$line" | jq . > /dev/null
     done <<< "$output"
+}
+
+# =============================================================================
+# map_liq_level — unit tests
+# =============================================================================
+
+@test "map_liq_level: INFO → INFO" {
+    source_functions
+    [ "$(map_liq_level "INFO")" = "INFO" ]
+}
+
+@test "map_liq_level: INFORMATION → INFO" {
+    source_functions
+    [ "$(map_liq_level "INFORMATION")" = "INFO" ]
+}
+
+@test "map_liq_level: WARN → WARN" {
+    source_functions
+    [ "$(map_liq_level "WARN")" = "WARN" ]
+}
+
+@test "map_liq_level: WARNING → WARN" {
+    source_functions
+    [ "$(map_liq_level "WARNING")" = "WARN" ]
+}
+
+@test "map_liq_level: WARNUNG (German) → WARN" {
+    source_functions
+    [ "$(map_liq_level "WARNUNG")" = "WARN" ]
+}
+
+@test "map_liq_level: ERROR → ERROR" {
+    source_functions
+    [ "$(map_liq_level "ERROR")" = "ERROR" ]
+}
+
+@test "map_liq_level: FEHLER (German) → ERROR" {
+    source_functions
+    [ "$(map_liq_level "FEHLER")" = "ERROR" ]
+}
+
+@test "map_liq_level: DEBUG → DEBUG" {
+    source_functions
+    [ "$(map_liq_level "DEBUG")" = "DEBUG" ]
+}
+
+@test "map_liq_level: TRACE → TRACE" {
+    source_functions
+    [ "$(map_liq_level "TRACE")" = "TRACE" ]
+}
+
+@test "map_liq_level: unknown token → INFO" {
+    source_functions
+    [ "$(map_liq_level "VERBOSE")" = "INFO" ]
+}
+
+# =============================================================================
+# detect_level — German locale additions
+# =============================================================================
+
+@test "detect_level: line containing 'WARNUNG' → WARN" {
+    source_functions
+    result="$(detect_level "WARNUNG [liquibase.configuration] Potentially ignored key")"
+    [ "$result" = "WARN" ]
+}
+
+# =============================================================================
+# emit_line — Liquibase prefixed-format branch
+# =============================================================================
+
+@test "emit_line: liquibase.ui prefixed line produces no output (duplicate suppression)" {
+    source_functions
+    output="$(emit_line "[2026-03-16 16:15:08] INFORMATION [liquibase.ui] Liquibase Version: 4.33.0")"
+    [ -z "$output" ]
+}
+
+@test "emit_line: liquibase.ui prefixed line suppressed even for WARNUNG level" {
+    source_functions
+    output="$(emit_line "[2026-03-16 16:15:08] WARNUNG [liquibase.ui] some ui warning")"
+    [ -z "$output" ]
+}
+
+@test "emit_line: non-ui prefixed line produces JSON output" {
+    source_functions
+    output="$(emit_line "[2026-03-16 16:15:08] INFORMATION [liquibase.integration] Starting command execution.")"
+    echo "$output" | jq . > /dev/null
+}
+
+@test "emit_line: WARNUNG in non-ui prefixed line maps to WARN" {
+    source_functions
+    line="[2026-03-16 16:15:08] WARNUNG [liquibase.configuration] Potentially ignored key(s) in liquibase.properties"
+    level="$(emit_line "$line" | jq -r '.log.level')"
+    [ "$level" = "WARN" ]
+}
+
+@test "emit_line: INFORMATION in non-ui prefixed line maps to INFO" {
+    source_functions
+    line="[2026-03-16 16:15:08] INFORMATION [liquibase.integration] Starting command execution."
+    level="$(emit_line "$line" | jq -r '.log.level')"
+    [ "$level" = "INFO" ]
+}
+
+@test "emit_line: non-ui prefixed line strips the timestamp/level/logger prefix from message" {
+    source_functions
+    line="[2026-03-16 16:15:08] INFORMATION [liquibase.integration] Starting command execution."
+    msg="$(emit_line "$line" | jq -r '.message')"
+    [ "$msg" = "Starting command execution." ]
+}
+
+@test "emit_line: non-ui prefixed line with ERROR level maps to ERROR" {
+    source_functions
+    line="[2026-03-16 16:15:08] ERROR [liquibase.changelog] ChangeSet failed"
+    level="$(emit_line "$line" | jq -r '.log.level')"
+    [ "$level" = "ERROR" ]
+}
+
+# =============================================================================
+# Integration: German-locale Liquibase output
+# =============================================================================
+
+@test "all output lines are valid JSON with German-locale Liquibase output" {
+    mkdir -p "$TEST_DIR/bin"
+    cat > "$TEST_DIR/bin/java" <<'EOF'
+#!/usr/bin/env bash
+echo "Liquibase Version: 4.33.0"
+echo "[2026-03-16 16:15:08] INFORMATION [liquibase.ui] Liquibase Version: 4.33.0"
+echo "[2026-03-16 16:15:08] WARNUNG [liquibase.configuration] Potentially ignored key(s) in liquibase.properties"
+echo " - 'hub.mode'"
+echo "WARNING: "
+echo "Liquibase detected the following invalid LIQUIBASE_* environment variables:"
+echo "- LIQUIBASE_URL"
+exit 0
+EOF
+    chmod +x "$TEST_DIR/bin/java"
+    export PATH="$TEST_DIR/bin:$PATH"
+
+    run "$SCRIPT" "$RUNNER_JAR"
+    [ "$status" -eq 0 ]
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        echo "$line" | jq . > /dev/null
+    done <<< "$output"
+}
+
+@test "liquibase.ui duplicate suppression: only one entry per bare UIService message" {
+    mkdir -p "$TEST_DIR/bin"
+    cat > "$TEST_DIR/bin/java" <<'EOF'
+#!/usr/bin/env bash
+# UIService emits both the bare line and the prefixed line for the same event
+echo "Liquibase Version: 4.33.0"
+echo "[2026-03-16 16:15:08] INFORMATION [liquibase.ui] Liquibase Version: 4.33.0"
+exit 0
+EOF
+    chmod +x "$TEST_DIR/bin/java"
+    export PATH="$TEST_DIR/bin:$PATH"
+
+    run "$SCRIPT" "$RUNNER_JAR"
+    count=0
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        msg="$(echo "$line" | jq -r '.message' 2>/dev/null)" || continue
+        [[ "$msg" == "Liquibase Version: 4.33.0" ]] && count=$((count + 1))
+    done <<< "$output"
+    [ "$count" -eq 1 ]
+}
+
+@test "WARNUNG prefixed line level is WARN in integration output" {
+    mkdir -p "$TEST_DIR/bin"
+    cat > "$TEST_DIR/bin/java" <<'EOF'
+#!/usr/bin/env bash
+echo "[2026-03-16 16:15:08] WARNUNG [liquibase.configuration] Potentially ignored key(s)"
+exit 0
+EOF
+    chmod +x "$TEST_DIR/bin/java"
+    export PATH="$TEST_DIR/bin:$PATH"
+
+    run "$SCRIPT" "$RUNNER_JAR"
+    found_warn=0
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        level="$(echo "$line" | jq -r '.log.level' 2>/dev/null)" || continue
+        [[ "$level" == "WARN" ]] && found_warn=1
+    done <<< "$output"
+    [ "$found_warn" -eq 1 ]
 }
