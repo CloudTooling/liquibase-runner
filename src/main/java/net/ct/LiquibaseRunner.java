@@ -23,9 +23,7 @@ public class LiquibaseRunner {
 
     public static void main(String[] args) throws Exception {
         int exitCode = run(args, System.out, System.err);
-        if (exitCode != 0) {
-            System.exit(exitCode);
-        }
+        System.exit(exitCode);
     }
 
     static int run(String[] args, PrintStream out, PrintStream err) throws Exception {
@@ -112,8 +110,6 @@ public class LiquibaseRunner {
 
                 // 7️⃣ Run update with contexts/labels
                 liquibase.update(new Contexts(contexts), new LabelExpression(labels));
-
-                System.exit(0); // success
             }
 
         } catch (IOException e) {
