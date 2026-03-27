@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       releaseversion:
-        description: "Release version"
+        description: 'Release version'
         required: true
         type: string
-        default: "X.Y.Z"
+        default: 'X.Y.Z'
 
 jobs:
   release: # Arbitrarily chosen
@@ -19,7 +19,6 @@ jobs:
       attestations: write
       id-token: write
     steps:
-
       - uses: actions/create-github-app-token@v3
         id: app-token
         with:
@@ -47,11 +46,11 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v5
         with:
-          distribution: "temurin" # As good as any other, see: https://github.com/actions/setup-java#supported-distributions
-          java-package: "jdk"
-          java-version: "21"
+          distribution: 'temurin' # As good as any other, see: https://github.com/actions/setup-java#supported-distributions
+          java-package: 'jdk'
+          java-version: '21'
           check-latest: true
-          cache: "maven"
+          cache: 'maven'
 
       - name: Setup settings.xml
         uses: s4u/maven-settings-action@v4.0.0
@@ -103,7 +102,7 @@ jobs:
           skip-bump: true
           skip-tag: true
           skip-on-empty: true
-          tag-prefix: "v"
+          tag-prefix: 'v'
 
       - name: Prepare release artifacts
         run: |
@@ -123,4 +122,3 @@ jobs:
           files: |
             liquibase-runner.jar
             liquibase-runner.sh
-            
