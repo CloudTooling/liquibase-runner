@@ -19,7 +19,6 @@ jobs:
           - "macos-latest"
           - "ubuntu-latest"
         java:
-          - "11"
           - "17"
           - "21"
 
