@@ -7,7 +7,7 @@ import liquibase.database.Database;
 import liquibase.database.DatabaseFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.exception.LiquibaseException;
-import liquibase.resource.FileSystemResourceAccessor;
+import liquibase.resource.DirectoryResourceAccessor;
 import liquibase.resource.ResourceAccessor;
 import org.slf4j.bridge.SLF4JBridgeHandler;
 
@@ -102,9 +102,9 @@ public class LiquibaseRunner {
                 // 5️⃣ ResourceAccessor (support searchPath)
                 ResourceAccessor resourceAccessor;
                 if (searchPath != null) {
-                    resourceAccessor = new FileSystemResourceAccessor(searchPath);
+                    resourceAccessor = new DirectoryResourceAccessor(new File(searchPath).toPath());
                 } else {
-                    resourceAccessor = new FileSystemResourceAccessor();
+                    resourceAccessor = new DirectoryResourceAccessor(new File(".").toPath());
                 }
 
                 // 6️⃣ Create Liquibase
