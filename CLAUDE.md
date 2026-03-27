@@ -178,11 +178,12 @@ when the JAR is on the **system classloader's** classpath. When Liquibase (or an
 framework) uses its own internal classloader to load dependencies, `ServiceLoader`
 for `java.sql.Driver` never runs, and `DriverManager.getConnection()` throws:
 
-```
+```text
 No suitable driver found for jdbc:oracle:thin:@//host:1521/SERVICE
 ```
 
 This happens even when:
+
 - The JAR is present and valid (correct size ~7MB)
 - JDK version is compatible (11+)
 - The URL format is correct (`@//host:port/service`)
@@ -219,3 +220,177 @@ RUN curl -fsSL https://nexus.example.com/.../ojdbc11-${VERSION}.jar \
 ```
 
 A valid `ojdbc11.jar` is ~7MB. An HTML error page will be a few KB.
+
+---
+
+## Liquibase Version Compatibility
+
+### `FileSystemResourceAccessor` was deprecated in v4.17, removed in v5
+
+Use `DirectoryResourceAccessor(Path)` instead — it exists in Liquibase 4.13+ and v5
+with the same constructor signature, giving a single JAR that works with both:
+
+```java
+// Before (broken on v5)
+new FileSystemResourceAccessor(searchPath)   // String constructor
+new FileSystemResourceAccessor()             // no-arg
+
+// After (works on v4.13+ and v5)
+new DirectoryResourceAccessor(new File(searchPath).toPath())
+new DirectoryResourceAccessor(new File(".").toPath())
+```
+
+### Liquibase 5 requires Java 17 as a minimum runtime
+
+Compiling with `maven.compiler.target=11` produces class files that Liquibase 5 itself
+cannot load (it ships Java-17-compiled classes). Set `source`/`target` to 17 when
+targeting v5 compatibility.
+
+### Test against multiple Liquibase versions via `-Dliquibase.version=X.Y.Z`
+
+Because `liquibase-core` is `provided`, overriding the property at build time
+recompiles and reruns tests against a different runtime without any code changes:
+
+```bash
+mvn verify -Dliquibase.version=4.27.0
+mvn verify -Dliquibase.version=5.0.2
+```
+
+---
+
+## Shaded JAR
+
+### Include ALL transitives of embedded libraries explicitly
+
+The Maven shade plugin `<artifactSet><includes>` list is not transitive — you must
+list every JAR you want bundled, including the transitive dependencies of your direct
+includes. Missing one causes `ClassNotFoundException` at runtime only when the JAR is
+executed standalone (Maven's test classpath fills the gap during `mvn test`, hiding
+the problem).
+
+Example: `logback-ecs-encoder` requires `ecs-logging-core`:
+
+```xml
+<includes>
+    <include>co.elastic.logging:logback-ecs-encoder</include>
+    <include>co.elastic.logging:ecs-logging-core</include>  <!-- must be explicit -->
+</includes>
+```
+
+### `shadedArtifactAttached=true` + `finalName` produces two output files
+
+- `target/liquibase-runner.jar` — the shaded JAR, named by `finalName`
+- `target/liquibase-runner-{version}-with-logging.jar` — the same JAR, attached as a
+  secondary Maven artifact with the classifier for install/deploy
+
+The file used by the shell wrapper and shipped in releases is `target/liquibase-runner.jar`.
+
+### `System.exit` must not be called inside `run()` — only in `main()`
+
+Calling `System.exit(0)` inside the static `run()` method kills the JVM when tests
+invoke `run()` directly, aborting the entire Maven process. Move all `System.exit`
+calls to `main()`:
+
+```java
+// main() — always call System.exit for clean JVM shutdown (prevents JDBC threads
+// from keeping the process alive)
+public static void main(String[] args) throws Exception {
+    int exitCode = run(args, System.out, System.err);
+    System.exit(exitCode);
+}
+
+// run() — never calls System.exit; just returns an int
+```
+
+---
+
+## Integration Tests (Java)
+
+### Use `maven-failsafe-plugin` for `*IT.java` classes
+
+Surefire skips `*IT.java` by default; Failsafe picks them up during `integration-test`
+and `verify`. Add both goals so a test failure actually fails the build:
+
+```xml
+<plugin>
+    <artifactId>maven-failsafe-plugin</artifactId>
+    <executions>
+        <execution>
+            <goals>
+                <goal>integration-test</goal>
+                <goal>verify</goal>
+            </goals>
+        </execution>
+    </executions>
+</plugin>
+```
+
+### Inject DB connection details via env vars for optional databases
+
+H2 always runs (in-memory, no service needed). PostgreSQL and MySQL are skipped
+locally but active in CI, controlled purely by env vars — no test annotations needed:
+
+```java
+static Stream<Arguments> databases() {
+    List<Arguments> args = new ArrayList<>();
+    args.add(Arguments.of("H2", "jdbc:h2:mem:" + UUID.randomUUID() + "...", "sa", ""));
+    String pgUrl = System.getenv("PG_URL");
+    if (pgUrl != null) args.add(Arguments.of("PostgreSQL", pgUrl, ...));
+    String mysqlUrl = System.getenv("MYSQL_URL");
+    if (mysqlUrl != null) args.add(Arguments.of("MySQL", mysqlUrl, ...));
+    return args.stream();
+}
+```
+
+---
+
+## GitHub Actions (Compatibility Workflow)
+
+### Inline heredoc POMs are corrupted by YAML indentation
+
+Writing a Maven POM inside a `run: |` block via heredoc is fragile: YAML strips the
+common indentation from all lines, which can mis-format or corrupt the XML. Commit the
+POM as a file and reference it directly:
+
+```yaml
+# Fragile — YAML indentation mangling
+- run: |
+    cat > /tmp/pom.xml << 'EOF'
+    <project>
+      ...
+    EOF
+    mvn -f /tmp/pom.xml ...
+
+# Correct — file committed to .github/
+- run: |
+    mvn -f .github/liq-compat-deps.xml \
+      -Dliquibase.compat.version=${{ matrix.liquibase-version }} \
+      dependency:copy-dependencies -DoutputDirectory=liquibase-home/lib
+```
+
+### `output=$(failing_command)` silently aborts the step under `set -e`
+
+GitHub Actions runs bash with `-eo pipefail`. If a command captured in `$()` exits
+non-zero, the step exits immediately — before printing `$output` — so the error
+message is never shown. Use `set +e` / `tee` to a file instead:
+
+```bash
+# Broken — error output is swallowed on failure
+output=$(./wrapper.sh ... 2>&1)
+echo "$output"   # never reached if wrapper exits non-zero
+
+# Correct — output is always visible in real time; exit code captured separately
+local jar_exit
+set +e
+./wrapper.sh ... 2>&1 | tee output.log
+jar_exit="${PIPESTATUS[0]}"
+set -e
+```
+
+### `dependency:copy-dependencies -DincludeArtifactIds=X` does NOT follow transitives
+
+The `includeArtifactIds` filter applies to the already-resolved flat dependency set,
+not the tree. Specifying `liquibase-core` only copies `liquibase-core.jar`, not
+`snakeyaml` or other transitives. To get the full runtime set for a single artifact,
+use a dedicated minimal POM where it is `compile`-scoped and run
+`dependency:copy-dependencies` without filters.

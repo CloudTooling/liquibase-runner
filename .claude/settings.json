@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.liquibase.com)",
+      "WebFetch(domain:javadocs.liquibase.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:www.javadoc.io)",
+      "WebFetch(domain:javadoc.io)"
+    ]
+  }
+}
