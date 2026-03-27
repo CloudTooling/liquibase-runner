@@ -77,6 +77,11 @@ class LiquibaseCompatibilityIT {
             args.add(Arguments.of("MySQL", mysqlUrl, System.getenv("MYSQL_USER"), System.getenv("MYSQL_PASS")));
         }
 
+        String oracleUrl = System.getenv("ORACLE_URL");
+        if (oracleUrl != null) {
+            args.add(Arguments.of("Oracle", oracleUrl, System.getenv("ORACLE_USER"), System.getenv("ORACLE_PASS")));
+        }
+
         return args.stream();
     }
 }
