@@ -35,9 +35,9 @@ fake_json_line() {
 
 # Source only the pure functions (no main logic) for unit-level tests
 source_functions() {
-    # We source up to but not including the input-validation block
-    # by extracting and eval-ing just the function definitions.
-    eval "$(sed -n '/^json_log()/,/^}/p; /^map_liq_level()/,/^}/p; /^detect_level()/,/^}/p; /^emit_line()/,/^}/p' "$SCRIPT")"
+    # Extract buffer-variable initialisers and all function definitions up to
+    # but not including the input-validation block.
+    eval "$(sed -n '/^_buf_level=/p; /^_buf_msg=/p; /^json_log()/,/^}/p; /^map_liq_level()/,/^}/p; /^detect_level()/,/^}/p; /^is_continuation()/,/^}/p; /^flush_buf()/,/^}/p; /^emit_line()/,/^}/p' "$SCRIPT")"
 }
 
 # =============================================================================
@@ -159,7 +159,7 @@ source_functions() {
 
 @test "emit_line: wraps plain text as JSON" {
     source_functions
-    output="$(emit_line "some plain log line")"
+    output="$(emit_line "some plain log line"; flush_buf)"
     echo "$output" | jq . > /dev/null
 }
 
@@ -488,4 +488,274 @@ EOF
         [[ "$level" == "WARN" ]] && found_warn=1
     done <<< "$output"
     [ "$found_warn" -eq 1 ]
+}
+
+# =============================================================================
+# is_continuation — unit tests
+# =============================================================================
+
+@test "is_continuation: leading space → true" {
+    source_functions
+    run is_continuation "  indented continuation"
+    [ "$status" -eq 0 ]
+}
+
+@test "is_continuation: dash-space prefix → true" {
+    source_functions
+    run is_continuation "- LIQUIBASE_URL"
+    [ "$status" -eq 0 ]
+}
+
+@test "is_continuation: plain top-level line → false" {
+    source_functions
+    run is_continuation "Top level message"
+    [ "$status" -ne 0 ]
+}
+
+@test "is_continuation: empty string → false" {
+    source_functions
+    run is_continuation ""
+    [ "$status" -ne 0 ]
+}
+
+# =============================================================================
+# flush_buf — unit tests
+# =============================================================================
+
+@test "flush_buf: empty buffer produces no output" {
+    source_functions
+    output="$(flush_buf)"
+    [ -z "$output" ]
+}
+
+@test "flush_buf: emits buffered message as valid JSON" {
+    source_functions
+    output="$(
+        _buf_level="WARN"
+        _buf_msg="something happened"
+        flush_buf
+    )"
+    echo "$output" | jq . > /dev/null
+}
+
+@test "flush_buf: emits buffered message with correct level" {
+    source_functions
+    level="$(
+        _buf_level="WARN"
+        _buf_msg="something happened"
+        flush_buf | jq -r '.log.level'
+    )"
+    [ "$level" = "WARN" ]
+}
+
+@test "flush_buf: clears buffer so second call produces no output" {
+    source_functions
+    output="$(
+        _buf_level="INFO"
+        _buf_msg="first message"
+        flush_buf
+        flush_buf
+    )"
+    count="$(echo "$output" | grep -c '^{' || true)"
+    [ "$count" -eq 1 ]
+}
+
+# =============================================================================
+# emit_line — multi-line buffering unit tests
+# =============================================================================
+
+@test "emit_line: plain text is buffered, not emitted immediately" {
+    source_functions
+    output="$(emit_line "top level line")"
+    [ -z "$output" ]
+}
+
+@test "emit_line: flush_buf after plain text emits one JSON record" {
+    source_functions
+    output="$(emit_line "top level line"; flush_buf)"
+    count="$(echo "$output" | grep -c '^{' || true)"
+    [ "$count" -eq 1 ]
+}
+
+@test "emit_line: continuation lines are appended to the buffer, not emitted" {
+    source_functions
+    output="$(
+        emit_line "Detected invalid env vars:"
+        emit_line "- LIQUIBASE_URL"
+        emit_line "- LIQUIBASE_USERNAME"
+    )"
+    [ -z "$output" ]
+}
+
+@test "emit_line: header plus continuations flush as a single JSON record" {
+    source_functions
+    output="$(
+        emit_line "Detected invalid env vars:"
+        emit_line "- LIQUIBASE_URL"
+        emit_line "- LIQUIBASE_USERNAME"
+        flush_buf
+    )"
+    count="$(echo "$output" | grep -c '^{' || true)"
+    [ "$count" -eq 1 ]
+}
+
+@test "emit_line: multi-line message preserves header and all bullet lines" {
+    source_functions
+    json_out="$(
+        emit_line "Detected invalid env vars:"
+        emit_line "- LIQUIBASE_URL"
+        emit_line "- LIQUIBASE_USERNAME"
+        flush_buf
+    )"
+    msg="$(echo "$json_out" | jq -r '.message')"
+    echo "$msg" | grep -q "Detected invalid env vars:"
+    echo "$msg" | grep -q "LIQUIBASE_URL"
+    echo "$msg" | grep -q "LIQUIBASE_USERNAME"
+}
+
+@test "emit_line: a new top-level line flushes the previous buffer first" {
+    source_functions
+    output="$(
+        emit_line "First message"
+        emit_line "Second message"
+        flush_buf
+    )"
+    count="$(echo "$output" | grep -c '^{' || true)"
+    [ "$count" -eq 2 ]
+}
+
+@test "emit_line: a JSON line flushes the pending buffer before passing through" {
+    source_functions
+    json_input='{"@timestamp":"2026-01-01T00:00:00+0000","log":{"level":"INFO"},"message":"ok","ecs.version":"1.12.0","service.name":"liquibase"}'
+    output="$(
+        emit_line "plain text first"
+        emit_line "$json_input"
+    )"
+    count="$(echo "$output" | grep -c '^{' || true)"
+    [ "$count" -eq 2 ]
+}
+
+@test "emit_line: a prefixed non-ui line flushes the pending buffer before emitting" {
+    source_functions
+    output="$(
+        emit_line "plain text first"
+        emit_line "[2026-03-16 16:15:08] INFORMATION [liquibase.integration] Starting."
+        flush_buf
+    )"
+    count="$(echo "$output" | grep -c '^{' || true)"
+    [ "$count" -eq 2 ]
+}
+
+@test "emit_line: indented continuation line is grouped with preceding header" {
+    source_functions
+    json_out="$(
+        emit_line "Keys with problems:"
+        emit_line "  - 'hub.mode'"
+        flush_buf
+    )"
+    msg="$(echo "$json_out" | jq -r '.message')"
+    echo "$msg" | grep -q "hub.mode"
+}
+
+# =============================================================================
+# Integration: multi-line plain-text output is grouped into one JSON record
+# =============================================================================
+
+@test "multi-line Liquibase env-var warning is grouped into a single JSON record" {
+    mkdir -p "$TEST_DIR/bin"
+    cat > "$TEST_DIR/bin/java" <<'EOF'
+#!/usr/bin/env bash
+echo "Liquibase detected the following invalid LIQUIBASE_* environment variables:"
+echo "- LIQUIBASE_PASSWORD"
+echo "- LIQUIBASE_URL"
+echo "- LIQUIBASE_USERNAME"
+exit 0
+EOF
+    chmod +x "$TEST_DIR/bin/java"
+    export PATH="$TEST_DIR/bin:$PATH"
+
+    run "$SCRIPT" "$RUNNER_JAR"
+    [ "$status" -eq 0 ]
+
+    # Exactly one JSON record should mention LIQUIBASE_PASSWORD
+    count=0
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        msg="$(echo "$line" | jq -r '.message' 2>/dev/null)" || continue
+        echo "$msg" | grep -q "LIQUIBASE_PASSWORD" && count=$((count + 1))
+    done <<< "$output"
+    [ "$count" -eq 1 ]
+}
+
+@test "grouped multi-line record contains all bullet lines" {
+    mkdir -p "$TEST_DIR/bin"
+    cat > "$TEST_DIR/bin/java" <<'EOF'
+#!/usr/bin/env bash
+echo "Liquibase detected the following invalid LIQUIBASE_* environment variables:"
+echo "- LIQUIBASE_PASSWORD"
+echo "- LIQUIBASE_URL"
+echo "- LIQUIBASE_USERNAME"
+exit 0
+EOF
+    chmod +x "$TEST_DIR/bin/java"
+    export PATH="$TEST_DIR/bin:$PATH"
+
+    run "$SCRIPT" "$RUNNER_JAR"
+    [ "$status" -eq 0 ]
+
+    grouped_msg=""
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        msg="$(echo "$line" | jq -r '.message' 2>/dev/null)" || continue
+        echo "$msg" | grep -q "LIQUIBASE_PASSWORD" && grouped_msg="$msg"
+    done <<< "$output"
+
+    echo "$grouped_msg" | grep -q "LIQUIBASE_URL"
+    echo "$grouped_msg" | grep -q "LIQUIBASE_USERNAME"
+}
+
+@test "trailing non-continuation footer line is emitted as a separate record" {
+    mkdir -p "$TEST_DIR/bin"
+    cat > "$TEST_DIR/bin/java" <<'EOF'
+#!/usr/bin/env bash
+echo "Liquibase detected the following invalid LIQUIBASE_* environment variables:"
+echo "- LIQUIBASE_URL"
+echo "Find the list of valid environment variables at https://docs.liquibase.com"
+exit 0
+EOF
+    chmod +x "$TEST_DIR/bin/java"
+    export PATH="$TEST_DIR/bin:$PATH"
+
+    run "$SCRIPT" "$RUNNER_JAR"
+    [ "$status" -eq 0 ]
+
+    found_footer=0
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        msg="$(echo "$line" | jq -r '.message' 2>/dev/null)" || continue
+        echo "$msg" | grep -q "Find the list" && found_footer=1
+    done <<< "$output"
+    [ "$found_footer" -eq 1 ]
+}
+
+@test "all output lines are valid JSON when multi-line plain text is present" {
+    mkdir -p "$TEST_DIR/bin"
+    cat > "$TEST_DIR/bin/java" <<'EOF'
+#!/usr/bin/env bash
+echo "Liquibase detected the following invalid LIQUIBASE_* environment variables:"
+echo "- LIQUIBASE_PASSWORD"
+echo "- LIQUIBASE_URL"
+echo "- LIQUIBASE_USERNAME"
+echo "Find the list of valid environment variables at https://docs.liquibase.com"
+exit 0
+EOF
+    chmod +x "$TEST_DIR/bin/java"
+    export PATH="$TEST_DIR/bin:$PATH"
+
+    run "$SCRIPT" "$RUNNER_JAR"
+    [ "$status" -eq 0 ]
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        echo "$line" | jq . > /dev/null
+    done <<< "$output"
 }

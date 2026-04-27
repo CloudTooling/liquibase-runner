@@ -64,14 +64,32 @@ detect_level() {
 }
 
 # -----------------------------------------------------------------------------
+# Multi-line buffer — accumulates continuation lines before emitting one record
+# -----------------------------------------------------------------------------
+_buf_level=""
+_buf_msg=""
+
+is_continuation() {
+    [[ "$1" =~ ^[[:space:]] ]] || [[ "$1" =~ ^-[[:space:]] ]]
+}
+
+flush_buf() {
+    [[ -z "$_buf_msg" ]] && return
+    json_log "$_buf_level" "$_buf_msg"
+    _buf_level=""
+    _buf_msg=""
+}
+
+# -----------------------------------------------------------------------------
 # Route a single output line to ECS JSON
 # -----------------------------------------------------------------------------
 emit_line() {
     local line="$1"
     [[ -z "$line" ]] && return
 
-    # Already ECS/JSON — pass straight through
+    # Already ECS/JSON — flush buffer and pass straight through
     if [[ "$line" =~ ^[[:space:]]*\{.*\}[[:space:]]*$ ]]; then
+        flush_buf
         echo "$line"
         return
     fi
@@ -86,11 +104,21 @@ emit_line() {
         if [[ "$liq_logger" == "liquibase.ui" ]]; then
             return  # UIService also emits the bare message — suppress the prefixed duplicate
         fi
+        flush_buf
         json_log "$(map_liq_level "$liq_level")" "$liq_msg"
         return
     fi
 
-    json_log "$(detect_level "$line")" "$line"
+    # Continuation of a buffered plain-text block (indented or bullet line)?
+    if [[ -n "$_buf_msg" ]] && is_continuation "$line"; then
+        _buf_msg+=$'\n'"$line"
+        return
+    fi
+
+    # New top-level plain-text line — flush previous buffer, start a new one
+    flush_buf
+    _buf_level="$(detect_level "$line")"
+    _buf_msg="$line"
 }
 
 # -----------------------------------------------------------------------------
@@ -137,9 +165,12 @@ json_log "INFO" "Using classpath entries: $(echo "$LIQUIBASE_CP" | tr ':' '\n' |
 # before we can read PIPESTATUS. Re-enable immediately after.
 set +e
 java -cp "$LIQUIBASE_CP" -Djdbc.drivers=oracle.jdbc.OracleDriver net.ct.LiquibaseRunner "$@" 2>&1 \
-    | while IFS= read -r line; do
-          emit_line "$line"
-      done
+    | {
+          while IFS= read -r line; do
+              emit_line "$line"
+          done
+          flush_buf
+      }
 # Capture PIPESTATUS[0] (java exit code) before anything else can overwrite it.
 JAVA_EXIT="${PIPESTATUS[0]}"
 set -e
